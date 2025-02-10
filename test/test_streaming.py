@@ -6,9 +6,12 @@ import shutil
 import subprocess
 import time
 
-  
 def linstt_streaming(*kargs, **kwargs):
+    start_time = time.time()  # Start measuring time
     text = asyncio.run(_linstt_streaming(*kargs, **kwargs))
+    end_time = time.time()  # End measuring time
+    execution_time = end_time - start_time
+    print(f"Execution Time: {execution_time:.2f} seconds")  # Print execution time
     return text
 
 async def _linstt_streaming(
@@ -17,7 +20,6 @@ async def _linstt_streaming(
     verbose = False,
     language = None
 ):
-    
     if audio_file is None:
         import pyaudio
         # Init pyaudio
@@ -28,21 +30,25 @@ async def _linstt_streaming(
     else:
         process = subprocess.run(["ffmpeg", "-y", "-i", audio_file, "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "tmp.wav"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stream = open("tmp.wav", "rb")
+
+        # Check if the process completed successfully
+        if process.returncode == 0:
+            print("FFmpeg conversion successful.")
+        else:
+            print("FFmpeg conversion failed:", process.stderr.decode())
+
     text = ""
     partial = None
-        # Check if the process completed successfully
-    if process.returncode == 0:
-        print("FFmpeg conversion successful.")
-    else:
-        print("FFmpeg conversion failed:", process.stderr.decode())
+
     async with websockets.connect(ws_api) as websocket:
         if language is not None:
-            config = {"config" : {"sample_rate": 16000, "language": language}}
-        else: 
-            config = {"config" : {"sample_rate": 16000}}
+            config = {"config": {"sample_rate": 16000, "language": language}}
+        else:
+            config = {"config": {"sample_rate": 16000}}
         await websocket.send(json.dumps(config))
+
         while True:
-            data = stream.read(2*2*16000)
+            data = stream.read(2 * 2 * 16000)
             if audio_file and not data:
                 if verbose > 1:
                     print("\nAudio file finished")
@@ -52,7 +58,7 @@ async def _linstt_streaming(
             message = json.loads(res)
             if message is None:
                 if verbose > 1:
-                    print("\n Received None")
+                    print("\nReceived None")
                 continue
             if "partial" in message.keys():
                 partial = message["partial"]
@@ -68,6 +74,7 @@ async def _linstt_streaming(
                     text += line
             elif verbose:
                 print(f"??? {message}")
+
         if verbose > 1:
             print("Sending EOF")
         await websocket.send('{"eof" : 1}')
@@ -80,24 +87,26 @@ async def _linstt_streaming(
         if text:
             text += " "
         text += message["text"]
+
     if verbose:
         print_final("= FULL TRANSCRIPTION ", background="=")
         print(text)
+
     if audio_file is not None:
-        stream.close()
+        stream.close()  # Close the file handle
         os.remove("tmp.wav")
 
     return text
-        
+
 def print_partial(text):
     text = text + "…"
     terminal_size = shutil.get_terminal_size()
     width = terminal_size.columns
-    start = ((len(text) - 1)// width) * width
+    start = ((len(text) - 1) // width) * width
     if start > 0:
-        print(" "*width, end="\r")
+        print(" " * width, end="\r")
         if start < len(text) - 1:
-            print("…"+text[start+1:]+" "*(width-len(text)-start-1), end="\r")
+            print("…" + text[start + 1:] + " " * (width - len(text) - start - 1), end="\r")
         else:
             print(text[-width:], end="\r")
     else:
@@ -108,16 +117,14 @@ def print_final(text, background=" "):
     width = terminal_size.columns
     print(background * width, end="\r")
     print(text)
-    
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Transcribe input streaming (from mic or a file) with LinSTT',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--server', help='Transcription server',
-        default="ws://localhost:8080/streaming",
-    )
+                        default="ws://localhost:8080/streaming",
+                        )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode")
     parser.add_argument("--audio_file", default=None, help="A path to an audio file to transcribe (if not provided, use mic)")
     parser.add_argument("--language", default=None, help="Language model to use")

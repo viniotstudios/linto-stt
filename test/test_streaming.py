@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 
   
 def linstt_streaming(*kargs, **kwargs):
@@ -25,10 +26,15 @@ async def _linstt_streaming(
         if verbose > 1:
             print("Start recording")
     else:
-        subprocess.run(["ffmpeg", "-y", "-i", audio_file, "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "tmp.wav"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.run(["ffmpeg", "-y", "-i", audio_file, "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "tmp.wav"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stream = open("tmp.wav", "rb")
     text = ""
     partial = None
+        # Check if the process completed successfully
+    if process.returncode == 0:
+        print("FFmpeg conversion successful.")
+    else:
+        print("FFmpeg conversion failed:", process.stderr.decode())
     async with websockets.connect(ws_api) as websocket:
         if language is not None:
             config = {"config" : {"sample_rate": 16000, "language": language}}
@@ -78,9 +84,11 @@ async def _linstt_streaming(
         print_final("= FULL TRANSCRIPTION ", background="=")
         print(text)
     if audio_file is not None:
+        stream.close()
         os.remove("tmp.wav")
+
     return text
-    
+        
 def print_partial(text):
     text = text + "…"
     terminal_size = shutil.get_terminal_size()
@@ -114,5 +122,5 @@ if __name__ == "__main__":
     parser.add_argument("--audio_file", default=None, help="A path to an audio file to transcribe (if not provided, use mic)")
     parser.add_argument("--language", default=None, help="Language model to use")
     args = parser.parse_args()
-
+    print("filename = ", args.audio_file)
     res = linstt_streaming(args.audio_file, args.server, verbose=2 if args.verbose else 1, language=args.language)
